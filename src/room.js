@@ -134,12 +134,7 @@ export class GameRoom extends DurableObject {
       s.passes = 0;
       s.last = { pid: cid, type: "draw", n: (s.last?.n ?? 0) + 1 };
       s.log.push(`${me.name} drew a card.`);
-      if (sum([me.hidden, ...me.visible]) > TARGET) {
-        const other = s.players.find((p) => p.id !== cid);
-        this.finish(other.id, `${me.name} went over ${TARGET}!`);
-      } else {
-        s.turn = (s.turn + 1) % s.players.length;
-      }
+      s.turn = (s.turn + 1) % s.players.length;
     } else if (msg.type === "pass") {
       if (s.phase !== "playing" || s.players[s.turn].id !== cid) return err("Not your turn.");
       s.passes++;
@@ -194,8 +189,15 @@ export class GameRoom extends DurableObject {
     const totals = s.players.map((p) => sum([p.hidden, ...p.visible]));
     const [a, b] = totals;
     if (a === b) return this.finish(null, `Both players have ${a}. It's a draw!`);
-    const winner = a > b ? 0 : 1;
-    this.finish(s.players[winner].id, `${s.players[winner].name} wins with ${totals[winner]} vs ${totals[1 - winner]}.`);
+    // Closest to 21 wins; going over only loses to someone still at or under 21.
+    // If both are over, the lower total (closer to 21) wins.
+    const score = (t) => (t <= TARGET ? t : TARGET - t); // over => negative, less over is better
+    const winner = score(a) > score(b) ? 0 : 1;
+    const w = s.players[winner], l = s.players[1 - winner];
+    const lt = totals[1 - winner];
+    this.finish(w.id, lt > TARGET
+      ? `${w.name} wins with ${totals[winner]} — ${l.name} went over with ${lt}.`
+      : `${w.name} wins with ${totals[winner]} vs ${lt}.`);
   }
 
   finish(winnerId, reason) {
